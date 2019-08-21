@@ -20,7 +20,8 @@
 #include "NetTrafficStati.h"
 
 #define IPTABLE_RES_FILE 	"/tmp/iptable_res"
-#define READ_IPTABLE		"iptables -n -v -L -t filter -x | grep -E \"Chain OUTPUT|Chain INPUT\">/tmp/iptable_res"
+//#define READ_IPTABLE		"iptables -n -v -L -t filter -x >/tmp/iptable_res"
+#define READ_IPTABLE		"iptables -n -v -L -t filter -x >/var/iptable_res"
 
 /******************************************************** 
 Function:	 NetTrafficStati
@@ -199,13 +200,13 @@ int NetTrafficStati::iptables_rulesAdd(struct sockaddr_in *addr)
 		if(NULL!=inet_ntop(AF_INET,&addr->sin_addr,l_arrs8IPdotdec,16));
 		{
 			/**set input rule**/
-			snprintf(l_IptablesCmd,sizeof(l_IptablesCmd),"iptables -I INPUT -d %s ",l_arrs8IPdotdec);
+			snprintf(l_IptablesCmd,sizeof(l_IptablesCmd),"iptables -I INPUT -s %s ",l_arrs8IPdotdec);
 			printf("cmd : %s \n",l_IptablesCmd);
 			system(l_IptablesCmd);
 			
 			/**set output rule**/
 			memset(l_IptablesCmd,0,sizeof(l_IptablesCmd));
-			snprintf(l_IptablesCmd,sizeof(l_IptablesCmd),"iptables -I OUTPUT -s %s ",l_arrs8IPdotdec);
+			snprintf(l_IptablesCmd,sizeof(l_IptablesCmd),"iptables -I OUTPUT -d %s ",l_arrs8IPdotdec);
 			printf("cmd : %s \n",l_IptablesCmd);
 			system(l_IptablesCmd);
 
@@ -332,6 +333,13 @@ int NetTrafficStati::NTS_ReadIptableIOByte(unsigned long long *u64Count)
 	unsigned long long l_u64DataByte = 0;
 	ssize_t read;
 	
+	unsigned long long  l_u64ToTalInputByte = 0;
+	unsigned long long  l_u64ToTalOutputByte = 0;
+	unsigned long long  l_u64ToTalNetByte = 0;
+	
+	char l_s8Status = -1;
+	
+	int i = 0;
 	//printf("cmd = %s \n",READ_IPTABLE);
 	system(READ_IPTABLE);
 	
@@ -344,8 +352,49 @@ int NetTrafficStati::NTS_ReadIptableIOByte(unsigned long long *u64Count)
        
     while ((read = getline(&line, &len, fp)) != -1) 
 	{
-		sscanf(line,"%s %s %s %s %lld %s %lld %s ",str1,str2,str3,str4,&num1,str5,&num2,str6);
-		l_u64DataByte += num2;
+		//sscanf(line,"%s %s %s %s %lld %s %lld %s ",str1,str2,str3,str4,&num1,str5,&num2,str6);
+		//l_u64DataByte += num2;
+		if(NULL!=strstr(line,"Chain INPUT"))
+		{
+			l_s8Status = 1;
+			sscanf(line,"%s %s %s %s %lld %s %lld %s ",str1,str2,str3,str4,&num1,str5,&num2,str6);
+			l_u64ToTalInputByte = num2;
+			if((read = getline(&line, &len, fp)) != -1)
+			{
+				continue;
+			}
+		}
+		
+		if(NULL!=strstr(line,"Chain FORWARD"))
+		{
+			l_s8Status = 0;
+			if((read = getline(&line, &len, fp)) != -1)
+			{
+				continue;
+			}
+		}
+		
+		if(NULL!=strstr(line,"Chain OUTPUT"))
+		{
+			l_s8Status = 2;
+			sscanf(line,"%s %s %s %s %lld %s %lld %s ",str1,str2,str3,str4,&num1,str5,&num2,str6);
+			l_u64ToTalOutputByte = num2;
+			if((read = getline(&line, &len, fp)) != -1)
+			{
+				continue;
+			}
+		}
+		
+		if(l_s8Status>0)
+		{
+			if(NULL!=strstr(line,"all"))
+			{
+				//printf("%s ",line);
+				sscanf(line,"%lld %lld %s %s %s %s %s %s ",&num1,&num2,str1,str2,str3,str4,str5,str6);
+				//printf("num1 =%lld num2 = %lld \n",num1,num2);
+				l_u64ToTalNetByte += num2;
+			}
+		}
     }
 	
 	if(NULL!=fp)
@@ -359,11 +408,14 @@ int NetTrafficStati::NTS_ReadIptableIOByte(unsigned long long *u64Count)
 		free(line);
 		line = NULL;
 	}
+	
+	//printf("l_u64ToTalInputByte  = %lld \n",l_u64ToTalInputByte);
+	//printf("l_u64ToTalOutputByte = %lld \n",l_u64ToTalOutputByte);
+	//printf("l_u64ToTalNetByte    = %lld \n",l_u64ToTalNetByte);
 
-	*u64Count = l_u64DataByte;
+	*u64Count = l_u64ToTalNetByte;
 	
 	return 0;
-
 }
 
 /************************************************* 
